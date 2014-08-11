@@ -8,6 +8,7 @@ include( common/common.pri )
 
 TARGET = gigavoxels
 TEMPLATE = app
+#CONFIG += c++11
 
 INCLUDEPATH += common
 

@@ -6,7 +6,7 @@
 #include <QImage>
 #include <QGLWidget>
 #include <QOpenGLContext>
-#include <QOpenGLFunctions_4_0_Core>
+#include <QOpenGLFunctions_4_3_Core>
 
 #define _USE_MATH_DEFINES
 #include <math.h>
@@ -40,26 +40,25 @@ CVoxelScene::CVoxelScene( QObject* parent )
 void
 CVoxelScene::initialise()
 {
-    m_funcs = m_context->versionFunctions<QOpenGLFunctions_4_0_Core>();
+    m_funcs = m_context->versionFunctions<QOpenGLFunctions_4_3_Core>();
     if ( !m_funcs )
     {
-        qFatal("Requires OpenGL >= 4.0");
+        qFatal("Requires OpenGL >= 4.3");
         exit( 1 );
     }
     m_funcs->initializeOpenGLFunctions();
 
     // Initialize resources
     prepareShaders();
+    prepareTextures();
+    prepareVertexBuffers();
+    prepareVertexArrayObject();
 
     // Enable depth testing
     glEnable( GL_DEPTH_TEST );
     glEnable( GL_CULL_FACE );
 
     glClearColor( 0.65f, 0.77f, 1.0f, 1.0f );
-
-    // Set the wireframe line properties
-    QOpenGLShaderProgramPtr shader = m_material->shader();
-    shader->bind();
 }
 
 //------------------------------------------------------------------------------
@@ -115,9 +114,9 @@ CVoxelScene::render()
 
     // Render the quad as a patch
     {
-        //QOpenGLVertexArrayObject::Binder binder( &m_vao );
+        QOpenGLVertexArrayObject::Binder binder( &m_vao );
         //shader->setPatchVertexCount( 1 );
-        //glDrawArrays( GL_PATCHES, 0, m_patchCount );
+        glDrawArrays( GL_TRIANGLES, 0, 6 );
     }
 }
 
@@ -164,23 +163,109 @@ CVoxelScene::prepareShaders()
 void
 CVoxelScene::prepareTextures()
 {
-    SamplerPtr sampler( new Sampler );
-    sampler->create();
-    sampler->setMinificationFilter( GL_LINEAR );
-    sampler->setMagnificationFilter( GL_LINEAR );
-    sampler->setWrapMode( Sampler::DirectionS, GL_CLAMP_TO_EDGE );
-    sampler->setWrapMode( Sampler::DirectionT, GL_CLAMP_TO_EDGE );
-    sampler->setWrapMode( Sampler::DirectionR, GL_CLAMP_TO_EDGE );
+    {
+        SamplerPtr sampler( new Sampler );
+        sampler->create();
+        sampler->setMinificationFilter( GL_LINEAR );
+        sampler->setMagnificationFilter( GL_LINEAR );
+        sampler->setWrapMode( Sampler::DirectionR, GL_REPEAT );
+        sampler->setWrapMode( Sampler::DirectionS, GL_REPEAT );
+        sampler->setWrapMode( Sampler::DirectionT, GL_REPEAT );
+
+        m_funcs->glActiveTexture( GL_TEXTURE0 );
+        TexturePtr brick( new QOpenGLTexture( QOpenGLTexture::Target3D ) );
+        brick->setAutoMipMapGenerationEnabled( false );
+        const int width( 4 ), height( width ), depth( width );
+        brick->setSize( width, height, depth );
+        brick->setFormat( QOpenGLTexture::R8_UNorm );
+        brick->allocateStorage();
+        quint8 brick_data[depth][height][width] = {
+            {
+                {0xff, 0, 0, 0}
+              , { 0, 0, 0, 0}
+              , { 0, 0, 0, 0}
+              , { 0, 0, 0, 0}
+            }
+          , {
+                { 0, 0, 0, 0}
+              , { 0, 0, 0, 0}
+              , { 0, 0, 0, 0}
+              , {-1, 0, 0, 0}
+            }
+          , {
+                { 0, 0, 0, 0}
+              , { 0, 0, 0, 0}
+              , {-1,-1, 0, 0}
+              , {-1,-1, 0, 0}
+            }
+          , {
+                { 0, 0, 0, 0}
+              , {-1,-1,-1, 0}
+              , {-1,-1,-1, 0}
+              , {-1,-1,-1, 0}
+            }
+        };
+        brick->setData( QOpenGLTexture::Red, QOpenGLTexture::UInt8, brick_data );
+        m_material->setTextureUnitConfiguration( 0, brick, sampler, QByteArrayLiteral( "brick_texture" ) );
+    }
+
+    {
+        SamplerPtr sampler( new Sampler );
+        sampler->create();
+        sampler->setWrapMode( Sampler::DirectionS, GL_REPEAT );
+        sampler->setWrapMode( Sampler::DirectionT, GL_REPEAT );
+        sampler->setMinificationFilter( GL_LINEAR );
+        sampler->setMagnificationFilter( GL_LINEAR );
+
+        m_funcs->glActiveTexture( GL_TEXTURE1 );
+        TexturePtr test( new QOpenGLTexture( QOpenGLTexture::Target2D ) );
+        test->setAutoMipMapGenerationEnabled( false );
+        const int width( 2 ), height( width );
+        test->setSize( width, height );
+        test->setFormat( QOpenGLTexture::RGBA8_UNorm );
+        test->allocateStorage();
+        quint32 test_data[width * height] = {
+            0x00000000, 0xffff0000
+          , 0xff00ff00, 0xff0000ff
+        };
+        test->setData( QOpenGLTexture::RGBA, QOpenGLTexture::UInt8, test_data );
+        test->bind();
+        m_material->setTextureUnitConfiguration( 1, test, sampler, QByteArrayLiteral( "test_texture" ) );
+    }
 
     m_funcs->glActiveTexture( GL_TEXTURE0 );
-    TexturePtr brick( new QOpenGLTexture( QOpenGLTexture::Target3D ) );
-    brick->setAutoMipMapGenerationEnabled( false );
-    int width( 16 ), height( width ), depth( width );
-    brick->setSize( width, height, depth );
-    brick->allocateStorage();
-    m_material->setTextureUnitConfiguration( 0, brick, sampler, QByteArrayLiteral( "brick" ) );
+}
 
-    m_funcs->glActiveTexture( GL_TEXTURE0 );
+//------------------------------------------------------------------------------
+void
+CVoxelScene::prepareVertexBuffers()
+{
+    float quad[6*2] = {
+       -1.0f,-1.0f, 1.0f,-1.0f
+      , 1.0f, 1.0f, 1.0f, 1.0f
+      ,-1.0f, 1.0f,-1.0f,-1.0f
+    };
+    m_quad_buffer.create();
+    m_quad_buffer.setUsagePattern( QOpenGLBuffer::StaticDraw );
+    m_quad_buffer.bind();
+    m_quad_buffer.allocate( quad, sizeof( quad ) );
+    m_quad_buffer.release();
+}
+
+//------------------------------------------------------------------------------
+void
+CVoxelScene::prepareVertexArrayObject()
+{
+    // Create a VAO for this "object"
+    m_vao.create();
+    {
+        QOpenGLVertexArrayObject::Binder binder( &m_vao );
+        QOpenGLShaderProgramPtr shader = m_material->shader();
+        shader->bind();
+        m_quad_buffer.bind();
+        shader->enableAttributeArray( "in_position" );
+        shader->setAttributeBuffer( "in_position", GL_FLOAT, 0, 2 );
+    }
 }
 
 //------------------------------------------------------------------------------

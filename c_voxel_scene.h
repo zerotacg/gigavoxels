@@ -7,11 +7,12 @@
 #include <QOpenGLBuffer>
 #include <QOpenGLDebugLogger>
 #include <QOpenGLShaderProgram>
+#include <QOpenGLVertexArrayObject>
 #include <QMatrix4x4>
 
 class Camera;
 
-class QOpenGLFunctions_4_0_Core;
+class QOpenGLFunctions_4_3_Core;
 
 class CVoxelScene : public AbstractScene
 {
@@ -38,6 +39,8 @@ public:
 private:
     void prepareShaders();
     void prepareTextures();
+    void prepareVertexBuffers();
+    void prepareVertexArrayObject();
 
     Camera* m_camera;
     QVector3D m_v;
@@ -49,12 +52,14 @@ private:
     QMatrix4x4 m_modelMatrix;
     QVector2D m_viewportSize;
 
+    QOpenGLVertexArrayObject m_vao;
+    QOpenGLBuffer m_quad_buffer;
     MaterialPtr m_material;
 
     float m_time;
     const float m_metersToUnits;
 
-    QOpenGLFunctions_4_0_Core* m_funcs;
+    QOpenGLFunctions_4_3_Core* m_funcs;
 };
 
 #endif // C_AREA_SCENE_H
